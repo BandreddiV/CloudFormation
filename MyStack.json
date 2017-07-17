@@ -1,0 +1,465 @@
+{
+    "AWSTemplateFormatVersion": "2010-09-09",
+    "Description" : "AWS CloudFormation Sample Template LAMP_Single_Instance: Create a LAMP stack using a single EC2 instance and a local MySQL database for storage. This template demonstrates using the AWS CloudFormation bootstrap scripts to install the packages and files necessary to deploy the Apache web server, PHP and MySQL at instance launch time. **WARNING** This template creates an Amazon EC2 instance. You will be billed for the AWS resources used if you create a stack from this template.",
+
+"Parameters" : {
+  "KeyName": {
+    "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the instance",
+    "Type": "AWS::EC2::KeyPair::KeyName",
+    "ConstraintDescription" : "must be the name of an existing EC2 KeyPair."
+  },
+
+  "DBName": {
+    "Default": "MyDatabase",
+    "Description" : "MySQL database name",
+    "Type": "String",
+    "MinLength": "1",
+    "MaxLength": "64",
+    "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
+    "ConstraintDescription" : "must begin with a letter and contain only alphanumeric characters."
+  },
+
+  "DBUser": {
+    "NoEcho": "true",
+    "Description" : "Username for MySQL database access",
+    "Type": "String",
+    "MinLength": "1",
+    "MaxLength": "16",
+    "AllowedPattern" : "[a-zA-Z][a-zA-Z0-9]*",
+    "ConstraintDescription" : "must begin with a letter and contain only alphanumeric characters."
+  },
+
+  "DBPassword": {
+    "NoEcho": "true",
+    "Description" : "Password for MySQL database access",
+    "Type": "String",
+    "MinLength": "1",
+    "MaxLength": "41",
+    "AllowedPattern" : "[a-zA-Z0-9]*",
+    "ConstraintDescription" : "must contain only alphanumeric characters."
+  },
+
+  "DBRootPassword": {
+    "NoEcho": "true",
+    "Description" : "Root password for MySQL",
+    "Type": "String",
+    "MinLength": "1",
+    "MaxLength": "41",
+    "AllowedPattern" : "[a-zA-Z0-9]*",
+    "ConstraintDescription" : "must contain only alphanumeric characters."
+  }
+},
+"Resources" : {
+"VPC" : {
+    "Type" : "AWS::EC2::VPC",
+    "Properties" : {
+      "CidrBlock" : "10.0.0.0/16",
+      "EnableDnsSupport": "false",
+      "EnableDnsHostnames": "false",
+      "InstanceTenancy": "default",
+      "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+    }
+  },
+  "venkatPublicSubnet1": {
+          "Type": "AWS::EC2::Subnet",
+          "Properties": {
+              "VpcId": { "Ref": "VPC" },
+              "AvailabilityZone": "us-east-1a",
+              "CidrBlock": "10.0.0.0/24",
+              "MapPublicIpOnLaunch": "true"
+          }
+      },
+      "venkatPublicSubnet2": {
+          "Type": "AWS::EC2::Subnet",
+          "Properties": {
+              "VpcId": { "Ref": "VPC" },
+              "AvailabilityZone": "us-east-1b",
+              "CidrBlock": "10.0.1.0/24",
+              "MapPublicIpOnLaunch": "true"
+          }
+      },
+      "venkatPrivateSubnet1": {
+          "Type": "AWS::EC2::Subnet",
+          "Properties": {
+              "VpcId": { "Ref": "VPC" },
+              "AvailabilityZone": "us-east-1a",
+              "CidrBlock": "10.0.2.0/24",
+              "MapPublicIpOnLaunch": "true"
+          }
+      },
+      "venkatPrivateSubnet2": {
+          "Type": "AWS::EC2::Subnet",
+          "Properties": {
+              "VpcId": { "Ref": "VPC" },
+              "AvailabilityZone": "us-east-1b",
+              "CidrBlock": "10.0.3.0/24",
+              "MapPublicIpOnLaunch": "true"
+          }
+      },
+      "PublicSubnetRouteTableAssociation" : {
+         "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties" : {
+            "SubnetId" : [{ "Ref" : "venkatPublicSubnet1" }, {"Ref" : "venkatPublicSubnet2"} ],
+            "RouteTableId" : { "Ref" : "PublicRouteTable" }
+         }
+      },
+      "PrivateSubnetRouteTableAssociation" : {
+         "Type" : "AWS::EC2::SubnetRouteTableAssociation",
+         "Properties" : {
+            "SubnetId" : [{ "Ref" : "venkatPrivateSubnet1" }, {"Ref" : "venkatPrivateSubnet2"} ],
+            "RouteTableId" : { "Ref" : "PrivateRouteTable" }
+         }
+      },
+      "NatGateway" : {
+          "DependsOn" : "AttachGateway",
+          "Type" : "AWS::EC2::NatGateway",
+          "Properties" : {
+            "AllocationId" : { "Fn::GetAtt" : ["EIP", "AllocationId"]},
+            "SubnetId" : { "Ref" : "venkatPublicSubnet1"}
+          }
+        },
+        "EIP" : {
+          "Type" : "AWS::EC2::EIP",
+          "Properties" : {
+          "Domain" : "VPC"
+          }
+        },
+        "InternetGateway" : {
+          "Type" : "AWS::EC2::InternetGateway",
+          "Properties" : {
+            "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+          }
+        },
+  "AttachGateway" : {
+     "Type" : "AWS::EC2::VPCGatewayAttachment",
+     "Properties" : {
+       "VpcId" : { "Ref" : "VPC" },
+       "InternetGatewayId" : { "Ref" : "InternetGateway" }
+     }
+  },
+  "PublicRouteTable" : {
+    "Type" : "AWS::EC2::RouteTable",
+    "Properties" : {
+      "VpcId" : {"Ref" : "VPC"},
+      "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+    }
+  },
+    "PrivateRouteTable" : {
+    "Type" : "AWS::EC2::RouteTable",
+    "Properties" : {
+      "VpcId" : {"Ref" : "VPC"},
+      "Tags" : [ {"Key" : "Application", "Value" : { "Ref" : "AWS::StackId"} } ]
+    }
+  },
+  "publicRoute" : {
+    "Type" : "AWS::EC2::Route",
+    "DependsOn" : "AttachGateway",
+    "Properties" : {
+      "RouteTableId" : { "Ref" : "PublicRouteTable" },
+      "DestinationCidrBlock" : "0.0.0.0/0",
+      "GatewayId" : { "Ref" : "InternetGateway" }
+    }
+  },
+    "privateRoute" : {
+    "Type" : "AWS::EC2::Route",
+    "DependsOn" : "AttachGateway",
+    "Properties" : {
+      "RouteTableId" : { "Ref" : "PrivateRouteTable" },
+      "DestinationCidrBlock" : "0.0.0.0/0",
+      "NatGatewayId" : { "Ref" : "NatGateway" }
+    }
+  },
+  "Venkata-CFTBastion":{
+    "Type": "AWS::EC2::Instance",
+    "Properties": {
+      "AvailabilityZone": "us-east-1a",
+      "InstanceType": "t2.micro",
+      "ImageId": "ami-c58c1dd3",
+      "SecurityGroups" : [ {"Ref" : "PublicSecurityGroup"} ],
+      "KeyName": { "Ref" : "KeyName" },
+      "NetworkInterfaces": [{
+          "AssociatePublicIpAddress": "true",
+          "DeviceIndex": "0",
+          "GroupSet": [{ "Ref": "PublicSecurityGroup" }],
+          "SubnetId": { "Ref":"venkatPublicSubnet2" }
+      }],
+      "BlockDeviceMappings": [{
+          "DeviceName": "/dev/sdm",
+          "Ebs": {
+            "VolumeType": "io1",
+            "Iops": "100",
+            "DeleteOnTermination": "false",
+            "VolumeSize": "8"
+          }
+      }],
+      "Tags" : [{"Key": "Name", "Value":"Venkata-CFTBastion"}, {"Key": "Owner", "Value": "venkata.bandreddi"}, {"Key": "Environment", "Value": "Testing"}, {"Key": "ExpirationDate", "Value": "2017-12-12"}, {"Key": "Project", "Value": "Trainee"}]
+    }
+    },
+    "Bitnami": {
+				"Type": "AWS::EC2::Instance",
+				"Properties": {
+					"AvailabilityZone": "us-east-1a",
+					"InstanceType": "t2.micro",
+					"ImageId": "ami-89f68a9f",
+          "SecurityGroups" : [ {"Ref" : "WebServerSecurityGroup"} ],
+					"KeyName": { "Ref" : "KeyName" },
+					"NetworkInterfaces": [{
+							"AssociatePublicIpAddress": "false",
+							"DeviceIndex": "0",
+							"GroupSet": [{ "Ref": "WebServerSecurityGroup" }],
+							"SubnetId": { "Ref":"venkatPrivateSubnet1" }
+					}],
+					"BlockDeviceMappings": [{
+							"DeviceName": "/dev/sdm",
+							"Ebs": {
+								"VolumeType": "io1",
+								"Iops": "100",
+								"DeleteOnTermination": "false",
+								"VolumeSize": "8"
+							}
+					}],
+					"Tags" : [{"Key": "Name", "Value":"Venkata-CFTBitnami"}, {"Key": "Owner", "Value": "venkata.bandreddi"}, {"Key": "Environment", "Value": "Testing"}, {"Key": "ExpirationDate", "Value": "2017-12-12"}, {"Key": "Project", "Value": "Trainee"}]
+				}
+        },
+      "WebServerInstance": {
+          "Type": "AWS::EC2::Instance",
+          "Metadata" : {
+            "AWS::CloudFormation::Init" : {
+              "configSets" : {
+                "InstallAndRun" : [ "Install", "Configure" ]
+              },
+
+              "Install" : {
+                "packages" : {
+                  "yum" : {
+                    "mysql"        : [],
+                    "mysql-server" : [],
+                    "mysql-libs"   : [],
+                    "httpd"        : [],
+                    "php"          : [],
+                    "php-mysql"    : []
+                  }
+                },
+
+                "files" : {
+                  "/var/www/html/index.php" : {
+                    "content" : { "Fn::Join" : [ "", [
+                      "<html>\n",
+                      "  <head>\n",
+                      "    <title>AWS CloudFormation PHP Sample</title>\n",
+                      "    <meta http-equiv=\"Content-Type\" content=\"text/html; charset=ISO-8859-1\">\n",
+                      "  </head>\n",
+                      "  <body>\n",
+                      "    <h1>Welcome to the AWS CloudFormation PHP Sample</h1>\n",
+                      "    <p/>\n",
+                      "    <?php\n",
+                      "      // Print out the current data and time\n",
+                      "      print \"The Current Date and Time is: <br/>\";\n",
+                      "      print date(\"g:i A l, F j Y.\");\n",
+                      "    ?>\n",
+                      "    <p/>\n",
+                      "    <?php\n",
+                      "      // Setup a handle for CURL\n",
+                      "      $curl_handle=curl_init();\n",
+                      "      curl_setopt($curl_handle,CURLOPT_CONNECTTIMEOUT,2);\n",
+                      "      curl_setopt($curl_handle,CURLOPT_RETURNTRANSFER,1);\n",
+                      "      // Get the hostname of the intance from the instance metadata\n",
+                      "      curl_setopt($curl_handle,CURLOPT_URL,'http://169.254.169.254/latest/meta-data/public-hostname');\n",
+                      "      $hostname = curl_exec($curl_handle);\n",
+                      "      if (empty($hostname))\n",
+                      "      {\n",
+                      "        print \"Sorry, for some reason, we got no hostname back <br />\";\n",
+                      "      }\n",
+                      "      else\n",
+                      "      {\n",
+                      "        print \"Server = \" . $hostname . \"<br />\";\n",
+                      "      }\n",
+                      "      // Get the instance-id of the intance from the instance metadata\n",
+                      "      curl_setopt($curl_handle,CURLOPT_URL,'http://169.254.169.254/latest/meta-data/instance-id');\n",
+                      "      $instanceid = curl_exec($curl_handle);\n",
+                      "      if (empty($instanceid))\n",
+                      "      {\n",
+                      "        print \"Sorry, for some reason, we got no instance id back <br />\";\n",
+                      "      }\n",
+                      "      else\n",
+                      "      {\n",
+                      "        print \"EC2 instance-id = \" . $instanceid . \"<br />\";\n",
+                      "      }\n",
+                      "      $Database   = \"localhost\";\n",
+                      "      $DBUser     = \"", {"Ref" : "DBUser"}, "\";\n",
+                      "      $DBPassword = \"", {"Ref" : "DBPassword"}, "\";\n",
+                      "      print \"Database = \" . $Database . \"<br />\";\n",
+                      "      $dbconnection = mysql_connect($Database, $DBUser, $DBPassword)\n",
+                      "                      or die(\"Could not connect: \" . mysql_error());\n",
+                      "      print (\"Connected to $Database successfully\");\n",
+                      "      mysql_close($dbconnection);\n",
+                      "    ?>\n",
+                      "    <h2>PHP Information</h2>\n",
+                      "    <p/>\n",
+                      "    <?php\n",
+                      "      phpinfo();\n",
+                      "    ?>\n",
+                      "  </body>\n",
+                      "</html>\n"
+                    ]]},
+                    "mode"  : "000600",
+                    "owner" : "apache",
+                    "group" : "apache"
+                  },
+
+                  "/tmp/setup.mysql" : {
+                    "content" : { "Fn::Join" : ["", [
+                      "CREATE DATABASE ", { "Ref" : "DBName" }, ";\n",
+                      "GRANT ALL ON ", { "Ref" : "DBName" }, ".* TO '", { "Ref" : "DBUser" }, "'@localhost IDENTIFIED BY '", { "Ref" : "DBPassword" }, "';\n"
+                      ]]},
+                    "mode"  : "000400",
+                    "owner" : "root",
+                    "group" : "root"
+                  },
+                  "/etc/cfn/cfn-hup.conf" : {
+                    "content" : { "Fn::Join" : ["", [
+                      "[main]\n",
+                      "stack=", { "Ref" : "AWS::StackId" }, "\n",
+                      "region=", { "Ref" : "AWS::Region" }, "\n"
+                    ]]},
+                    "mode"    : "000400",
+                    "owner"   : "root",
+                    "group"   : "root"
+                  },
+
+                  "/etc/cfn/hooks.d/cfn-auto-reloader.conf" : {
+                    "content": { "Fn::Join" : ["", [
+                      "[cfn-auto-reloader-hook]\n",
+                      "triggers=post.update\n",
+                      "path=Resources.WebServerInstance.Metadata.AWS::CloudFormation::Init\n",
+                      "action=/opt/aws/bin/cfn-init -v ",
+                      "         --stack ", { "Ref" : "AWS::StackName" },
+                      "         --resource WebServerInstance ",
+                      "         --configsets InstallAndRun ",
+                      "         --region ", { "Ref" : "AWS::Region" }, "\n",
+                      "runas=root\n"
+                    ]]}
+                  }
+                },
+
+                "services" : {
+                  "sysvinit" : {
+                    "mysqld"  : { "enabled" : "true", "ensureRunning" : "true" },
+                    "httpd"   : { "enabled" : "true", "ensureRunning" : "true" },
+                    "cfn-hup" : { "enabled" : "true", "ensureRunning" : "true",
+                                  "files" : ["/etc/cfn/cfn-hup.conf", "/etc/cfn/hooks.d/cfn-auto-reloader.conf"]}
+                  }
+                }
+              },
+
+              "Configure" : {
+                "commands" : {
+                  "01_set_mysql_root_password" : {
+                    "command" : { "Fn::Join" : ["", ["mysqladmin -u root password '", { "Ref" : "DBRootPassword" }, "'"]]},
+                    "test" : { "Fn::Join" : ["", ["$(mysql ", { "Ref" : "DBName" }, " -u root --password='", { "Ref" : "DBRootPassword" }, "' >/dev/null 2>&1 </dev/null); (( $? != 0 ))"]]}
+                  },
+                  "02_create_database" : {
+                    "command" : { "Fn::Join" : ["", ["mysql -u root --password='", { "Ref" : "DBRootPassword" }, "' < /tmp/setup.mysql"]]},
+                    "test" : { "Fn::Join" : ["", ["$(mysql ", { "Ref" : "DBName" }, " -u root --password='", { "Ref" : "DBRootPassword" }, "' >/dev/null 2>&1 </dev/null); (( $? != 0 ))"]]}
+                  }
+                }
+              }
+            }
+          },
+          "Properties": {
+            "AvailabilityZone": "us-east-1a",
+            "InstanceType": "t2.micro",
+            "ImageId": "ami-c58c1dd3",
+            "SecurityGroups" : [ {"Ref" : "WebServerSecurityGroup"} ],
+            "KeyName"        : { "Ref" : "KeyName" },
+            "UserData"       : { "Fn::Base64" : { "Fn::Join" : ["", [
+                 "#!/bin/bash -xe\n",
+                 "yum update -y aws-cfn-bootstrap\n",
+
+                 "# Install the files and packages from the metadata\n",
+                 "/opt/aws/bin/cfn-init -v ",
+                 "         --stack ", { "Ref" : "AWS::StackName" },
+                 "         --resource WebServerInstance ",
+                 "         --configsets InstallAndRun ",
+                 "         --region ", { "Ref" : "AWS::Region" }, "\n",
+
+                 "# Signal the status from cfn-init\n",
+                 "/opt/aws/bin/cfn-signal -e $? ",
+                 "         --stack ", { "Ref" : "AWS::StackName" },
+                 "         --resource WebServerInstance ",
+                 "         --region ", { "Ref" : "AWS::Region" }, "\n"
+            ]]}},
+            "NetworkInterfaces": [{
+  							"AssociatePublicIpAddress": "false",
+  							"DeviceIndex": "0",
+  							"GroupSet": [{ "Ref": "WebServerSecurityGroup" }],
+  							"SubnetId": { "Ref":"venkatPrivateSubnet1" }
+  					}],
+  					"BlockDeviceMappings": [{
+  							"DeviceName": "/dev/sdm",
+  							"Ebs": {
+  								"VolumeType": "io1",
+  								"Iops": "100",
+  								"DeleteOnTermination": "false",
+  								"VolumeSize": "8"
+  							 }
+  					}],
+            "Tags" : [{"Key": "Name", "Value":"Venkata-CFTLAMP"}, {"Key": "Owner", "Value": "venkata.bandreddi"}, {"Key": "Environment", "Value": "Testing"}, {"Key": "ExpirationDate", "Value": "2017-12-12"}, {"Key": "Project", "Value": "Trainee"}]
+          },
+          "CreationPolicy" : {
+            "ResourceSignal" : {
+              "Timeout" : "PT5M"
+            }
+          }
+        },
+      "MyLoadBalancer" : {
+        "Type" : "AWS::ElasticLoadBalancing::LoadBalancer",
+        "Properties" : {
+          "CrossZone" : "true",
+          "ConnectionSettings" : { "IdleTimeout" : "60"},
+          "ConnectionDrainingPolicy" :  { "Enabled" : "true", "Timeout" : "300"},
+          "Subnets": [{ "Ref":"venkatPublicSubnet1" }, { "Ref":"venkatPublicSubnet2" }],
+          "Instances" : [
+            { "Ref" : "Bitnami" },
+            { "Ref" : "WebServerInstance" }
+          ],
+          "Listeners" : [ { "LoadBalancerPort" : "80", "InstancePort" : "80", "Protocol" : "HTTP"} ],
+
+        "HealthCheck" : {
+            "Target" : "HTTP:80/",
+            "HealthyThreshold" : "3",
+            "UnhealthyThreshold" : "2",
+            "Interval" : "10",
+            "Timeout" : "5"
+          },
+          "SecurityGroups" : [ {"Ref" : "PublicSecurityGroup"} ],
+          "VpcId": { "Ref": "VPC" },
+          "Tags" : [{"Key": "Name", "Value":"Venkata-CFTELB"}, {"Key": "Owner", "Value": "venkata.bandreddi"}, {"Key": "Environment", "Value": "Testing"}, {"Key": "ExpirationDate", "Value": "2017-12-12"}, {"Key": "Project", "Value": "Trainee"}]
+        }
+      },
+    "PublicSecurityGroup" : {
+      "Type" : "AWS::EC2::SecurityGroup",
+      "Properties" : {
+        "GroupDescription" : "Enable HTTP access via port 80",
+        "SecurityGroupIngress" : [
+            {"IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "72.196.48.126/32"},
+		    {"IpProtocol" : "tcp", "FromPort" : "443", "ToPort" : "443", "CidrIp" : "72.196.48.126/32"},
+            {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "72.196.48.126/32"}
+        ],
+        "VpcId": { "Ref": "VPC" }
+      }
+    },
+    "WebServerSecurityGroup" : {
+    "Type" : "AWS::EC2::SecurityGroup",
+    "Properties" : {
+      "GroupDescription" : "Enable HTTP access via port 80",
+      "SecurityGroupIngress" : [
+          {"IpProtocol" : "tcp", "FromPort" : "80", "ToPort" : "80", "CidrIp" : "10.0.0.0/16"},
+          {"IpProtocol" : "tcp", "FromPort" : "443", "ToPort" : "443", "CidrIp" : "10.0.0.0/16"},
+          {"IpProtocol" : "tcp", "FromPort" : "22", "ToPort" : "22", "CidrIp" : "10.0.0.0/16"}
+      ],
+      "VpcId": { "Ref": "VPC" }
+    }
+  }
+}
+}
